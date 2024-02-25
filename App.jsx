@@ -1,4 +1,4 @@
-import React from './V01/core/React.js'
+import React from './src/core/React.js'
 
 const App = <div>app</div>
 
