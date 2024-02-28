@@ -14,7 +14,8 @@ function createElement (type, props, ...children) {
         props: {
             ...props,
             children: children.map(child => {
-                return typeof child === 'string' ? createTextNode(child) : child
+                const isTextNode = typeof child === 'string' || typeof child === 'number'
+                return isTextNode ? createTextNode(child) : child
             })
         },
         
@@ -35,8 +36,7 @@ function updateProps (dom, props) {
     })
 }
 
-function convertChildrenToLink (fiber) {
-    const children = fiber.props.children
+function convertChildrenToLink (fiber, children) {
     let prevChild = null
     children.forEach((child, idx) => {
         const newFiber = {
@@ -57,25 +57,39 @@ function convertChildrenToLink (fiber) {
     })
 }
 
-function performWorkOfUnit (fiber) {
+function updateFunctionComponent (fiber) {
+    const children = [fiber.type(fiber.props)]
+    convertChildrenToLink(fiber, children)
+}
+
+function updateHostComponent (fiber) {
     // not a first render
     if (!fiber.dom) {
         const dom = fiber.dom = createDom(fiber.type)
-    
         updateProps(dom, fiber.props)
     }
+    convertChildrenToLink(fiber, fiber.props.children)
+}
 
-    convertChildrenToLink(fiber)
+function performWorkOfUnit (fiber) {
+    const isFunctionComponent = typeof fiber.type === 'function'
+
+    if (isFunctionComponent) {
+        updateFunctionComponent(fiber)
+    } else {
+        updateHostComponent(fiber)
+    }
 
     if (fiber.child) {
         return fiber.child
     }
 
-    if (fiber.sibling) {
-        return fiber.sibling
+    // multiple components at the same level 
+    let nextFiber = fiber
+    while (nextFiber) {
+        if (nextFiber.sibling) return nextFiber.sibling
+        nextFiber = nextFiber.parent
     }
-
-    return fiber.parent?.sibling
 }
 
 function commitRoot (fiber) {
@@ -87,7 +101,13 @@ function commitRoot (fiber) {
 function commitFiber (fiber) {
     if (!fiber) return
 
-    fiber.parent.dom.append(fiber.dom)
+    // function component and recursion nesting
+    let fiberParent = fiber.parent
+    while (!fiberParent.dom) {
+        fiberParent = fiberParent.parent
+    }
+    fiber.dom && fiberParent.dom.append(fiber.dom)
+
     commitFiber(fiber.child)
     commitFiber(fiber.sibling)
 }
