@@ -27,29 +27,66 @@ function createDom (type) {
         : document.createTextNode('')
 }
 
-function updateProps (dom, props) {
-    Object.keys(props).forEach(prop => {
+function updateProps (dom, nextProps, prevProps) {
+    // 1. old has prop, but new does not
+    Object.keys(prevProps).forEach(prop => {
         if (prop !== 'children') {
-            if (prop.startsWith('on')) {
-                const eventType = prop.slice(2).toLocaleLowerCase()
-                dom.addEventListener(eventType, props[prop])
-            } else {
-                dom[prop] = props[prop]
+            if (!(prop in nextProps)) {
+                dom.removeAttribute(prop)
             }
+        }
+    })
+
+    // 2. new has prop, but old does not
+    // 3. new has prop, but old does has
+    Object.keys(nextProps).forEach(prop => {
+        if (prop !== 'children') {
+            if (nextProps[prop] !== prevProps[prop]) {
+                if (prop.startsWith('on')) {
+                    const eventType = prop.slice(2).toLocaleLowerCase()
+                    dom.removeEventListener(eventType, prevProps[prop])
+                    dom.addEventListener(eventType, nextProps[prop])
+                } else {
+                    dom[prop] = nextProps[prop]
+                }
+            }              
         }
     })
 }
 
-function convertChildrenToLink (fiber, children) {
+function reconcileChildren (fiber, children) {
+    let oldChild = fiber.alternate?.child
     let prevChild = null
     children.forEach((child, idx) => {
-        const newFiber = {
-            type: child.type,
-            props: child.props,
-            child: null,
-            parent: fiber,
-            sibling: null,
-            dom: null,
+        const isSameType = oldChild && oldChild.type === child.type
+
+        let newFiber
+        if (isSameType) {
+            // update
+            newFiber = {
+                type: child.type,
+                props: child.props,
+                child: null,
+                parent: fiber,
+                sibling: null,
+                dom: oldChild.dom,
+                effectTag: 'update',
+                alternate: oldChild,
+            }
+        } else {
+            newFiber = {
+                type: child.type,
+                props: child.props,
+                child: null,
+                parent: fiber,
+                sibling: null,
+                dom: null,
+                effectTag: 'placement'
+            }
+        }
+
+        if (oldChild) {
+            oldChild = oldChild.sibling
         }
 
         if (idx === 0) {
@@ -63,16 +100,16 @@ function convertChildrenToLink (fiber, children) {
 
 function updateFunctionComponent (fiber) {
     const children = [fiber.type(fiber.props)]
-    convertChildrenToLink(fiber, children)
+    reconcileChildren(fiber, children)
 }
 
 function updateHostComponent (fiber) {
     // not a first render
     if (!fiber.dom) {
         const dom = fiber.dom = createDom(fiber.type)
-        updateProps(dom, fiber.props)
+        updateProps(dom, fiber.props, {})
     }
-    convertChildrenToLink(fiber, fiber.props.children)
+    reconcileChildren(fiber, fiber.props.children)
 }
 
 function performWorkOfUnit (fiber) {
@@ -96,10 +133,11 @@ function performWorkOfUnit (fiber) {
     }
 }
 
-function commitRoot (fiber) {
-    commitFiber(fiber.child)
+function commitRoot () {
+    commitFiber(wipRoot.child)
+    currentRoot = wipRoot
     // only calling commitRoot once
-    root = null
+    wipRoot = null
 }
 
 function commitFiber (fiber) {
@@ -110,13 +148,19 @@ function commitFiber (fiber) {
     while (!fiberParent.dom) {
         fiberParent = fiberParent.parent
     }
-    fiber.dom && fiberParent.dom.append(fiber.dom)
+
+    if (fiber.effectTag === 'update') {
+        updateProps(fiber.dom, fiber.props , fiber.alternate?.props)
+    } else {
+        fiber.dom && fiberParent.dom.append(fiber.dom)
+    }
 
     commitFiber(fiber.child)
     commitFiber(fiber.sibling)
 }
 
-let root = null
+let wipRoot = null
+let currentRoot = null
 let nextWork = null
 function workloop (deadLine) {
     let shouldYield = false
@@ -127,25 +171,36 @@ function workloop (deadLine) {
     }
 
     // unified submission to dom
-    if (!nextWork && root) {
-        commitRoot(root)
+    if (!nextWork && wipRoot) {
+        commitRoot()
     }
 
     requestIdleCallback(workloop)
 }
-requestIdleCallback(workloop)
 
 function render (el, container) {
-    nextWork = {
+    wipRoot = {
         dom: container,
         props: {
             children: [el],
         }
     }
-    root = nextWork
+    nextWork = wipRoot
 }
 
+function update () {
+    wipRoot = {
+        dom: currentRoot.dom,
+        props: currentRoot.props,
+        alternate: currentRoot,
+    }
+    nextWork = wipRoot
+}
+
+requestIdleCallback(workloop)
+
 export default {
+    update,
     render,
-    createElement
+    createElement,
 }
