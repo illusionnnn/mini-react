@@ -57,6 +57,7 @@ function updateProps (dom, nextProps, prevProps) {
 function reconcileChildren (fiber, children) {
     let oldChild = fiber.alternate?.child
     let prevChild = null
+
     children.forEach((child, idx) => {
         const isSameType = oldChild && oldChild.type === child.type
 
@@ -74,14 +75,22 @@ function reconcileChildren (fiber, children) {
                 alternate: oldChild,
             }
         } else {
-            newFiber = {
-                type: child.type,
-                props: child.props,
-                child: null,
-                parent: fiber,
-                sibling: null,
-                dom: null,
-                effectTag: 'placement'
+            // using boolean to return nodes
+            if (child) {
+                newFiber = {
+                    type: child.type,
+                    props: child.props,
+                    child: null,
+                    parent: fiber,
+                    sibling: null,
+                    dom: null,
+                    effectTag: 'placement'
+                }
+            }
+
+            // delete
+            if (oldChild) {
+                deletions.push(oldChild)
             }
         }
 
@@ -94,11 +103,22 @@ function reconcileChildren (fiber, children) {
         } else {
             prevChild.sibling = newFiber
         }
-        prevChild = newFiber
+        // using boolean to return nodes
+        if (newFiber) {
+            prevChild = newFiber
+        }
     })
+
+    // new is less than old
+    while (oldChild) {
+        deletions.push(oldChild)
+        oldChild = oldChild.sibling
+    }
 }
 
 function updateFunctionComponent (fiber) {
+    wipFiber = fiber
+
     const children = [fiber.type(fiber.props)]
     reconcileChildren(fiber, children)
 }
@@ -134,10 +154,11 @@ function performWorkOfUnit (fiber) {
 }
 
 function commitRoot () {
+    deletions.forEach(commitDeletion)
     commitFiber(wipRoot.child)
-    currentRoot = wipRoot
     // only calling commitRoot once
     wipRoot = null
+    deletions = []
 }
 
 function commitFiber (fiber) {
@@ -159,14 +180,32 @@ function commitFiber (fiber) {
     commitFiber(fiber.sibling)
 }
 
+function commitDeletion (fiber) {
+    if (fiber.dom) {
+        let fiberParent = fiber.parent
+        while (!fiberParent.dom) {
+            fiberParent = fiberParent.parent
+        }
+        fiberParent.dom.removeChild(fiber.dom)
+    } else {
+        commitDeletion(fiber.child)
+    }
+}
+
 let wipRoot = null
-let currentRoot = null
 let nextWork = null
+let deletions = []
+let wipFiber = null
 function workloop (deadLine) {
     let shouldYield = false
     while (!shouldYield && nextWork) {
         // dom render
         nextWork = performWorkOfUnit(nextWork)
+
+        if (wipRoot?.sibling?.type === nextWork?.type) {
+            nextWork = undefined
+        }
+
         shouldYield = deadLine.timeRemaining() < 1
     }
 
@@ -189,12 +228,16 @@ function render (el, container) {
 }
 
 function update () {
-    wipRoot = {
-        dom: currentRoot.dom,
-        props: currentRoot.props,
-        alternate: currentRoot,
+    let currentWipFiber = wipFiber
+
+    // using clourse to save current function component
+    return () => {
+        wipRoot = {
+            ...currentWipFiber,
+            alternate: currentWipFiber,
+        }
+        nextWork = wipRoot
     }
-    nextWork = wipRoot
 }
 
 requestIdleCallback(workloop)
