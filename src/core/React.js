@@ -120,6 +120,7 @@ function updateFunctionComponent (fiber) {
     // reset when rerender component
     stateHookIdx = 0
     stateHooks = []
+    effectHooks = []
     wipFiber = fiber
 
     const children = [fiber.type(fiber.props)]
@@ -159,6 +160,7 @@ function performWorkOfUnit (fiber) {
 function commitRoot () {
     deletions.forEach(commitDeletion)
     commitFiber(wipRoot.child)
+    commitEffectHooks()
     // only calling commitRoot once
     wipRoot = null
     deletions = []
@@ -193,6 +195,49 @@ function commitDeletion (fiber) {
     } else {
         commitDeletion(fiber.child)
     }
+}
+
+function commitEffectHooks () {
+    function run (fiber) {
+        if (!fiber) return
+
+        // init
+        if (!fiber.alternate) {
+            fiber?.effectHooks?.forEach(hook => {
+                hook.cleanup = hook.cb()
+            })
+        } else {
+            // update
+            const oldEffectHooks = fiber.alternate.effectHooks
+            oldEffectHooks?.forEach((oldHook, idxOutter) => {
+                const newHook = fiber?.effectHooks[idxOutter]
+                const needUpdate = oldHook?.deps.some((dep, idxInner) => {
+                    return dep !== newHook.deps[idxInner]
+                })
+
+                needUpdate && (newHook.cleanup = newHook?.cb())
+            })
+        }
+
+        run(fiber.child)
+        run(fiber.sibling)
+    }
+
+    function runCleanup (fiber) {
+        if (!fiber) return
+
+        fiber.alternate?.effectHooks?.forEach(hook => {
+            if (hook.deps.length) {
+                hook.cleanup && hook.cleanup()
+            }
+        })
+
+        runCleanup(fiber.child)
+        runCleanup(fiber.sibling)
+    }
+    runCleanup(wipFiber)
+
+    run(wipFiber)
 }
 
 let wipRoot = null
@@ -278,10 +323,22 @@ function useState (initial) {
     return [stateHook.state, setState]
 }
 
+let effectHooks
+function useEffect (cb, deps) {
+    const effectHook = {
+        cb,
+        deps,
+        cleanup: undefined,
+    }
+    effectHooks.push(effectHook)
+    wipFiber.effectHooks = effectHooks
+}
+
 requestIdleCallback(workloop)
 
 export default {
     useState,
+    useEffect,
     update,
     render,
     createElement,
