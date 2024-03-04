@@ -1,57 +1,19 @@
 import React from './src/core/React.js'
 
-let countFoo = 1
 function Foo () {
-    console.log('Foo render')
+    const [count, setCount] = React.useState(0)
+    const [count2, setCount2] = React.useState('bar')
 
-    let update = React.update()
     function handleClick () {
-        countFoo++
-        update()
+        setCount(() => 10)
+        setCount2(c => c + 'bar')
     }
 
     return (
         <div>
-            foo: { countFoo }
+            <div>count: { count }</div>
+            <div>count2: { count2 }</div>
             <button onClick={ handleClick }>click</button>
-        </div>
-    )
-}
-
-let countBar = 1
-function Bar () {
-    console.log('Bar render')
-
-    let update = React.update()
-    function handleClick () {
-        countBar++
-        update()
-    }
-
-    return (
-        <div>
-            bar: { countBar }
-            <button onClick={ handleClick }>click</button>
-        </div>
-    )
-}
-
-let countContainer = 1
-function Container () {
-    console.log('Container render')
-
-    let update = React.update()
-    function handleClick () {
-        countContainer++
-        update()
-    }
-
-    return (
-        <div>
-            container: { countContainer }
-            <button onClick={ handleClick }>button</button>
-            <Bar></Bar>
-            <Foo></Foo>
         </div>
     )
 }
@@ -59,7 +21,7 @@ function Container () {
 const App = (
     <div>
         app
-        <Container></Container>
+        <Foo></Foo>
     </div>
 )
 

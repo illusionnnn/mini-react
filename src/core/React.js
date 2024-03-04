@@ -117,6 +117,9 @@ function reconcileChildren (fiber, children) {
 }
 
 function updateFunctionComponent (fiber) {
+    // reset when rerender component
+    stateHookIdx = 0
+    stateHooks = []
     wipFiber = fiber
 
     const children = [fiber.type(fiber.props)]
@@ -240,9 +243,45 @@ function update () {
     }
 }
 
+let stateHookIdx
+let stateHooks
+function useState (initial) {
+    let currentWipFiber = wipFiber
+    const oldHook = currentWipFiber.alternate?.stateHooks[stateHookIdx]
+    const stateHook = {
+        state: oldHook ? oldHook.state : initial,
+        queue: oldHook ? oldHook.queue : [],
+    }
+
+    stateHook.queue.forEach(action => {
+        stateHook.state = action(stateHook.state)
+    })
+    stateHook.queue = []
+
+    stateHooks.push(stateHook)
+    stateHookIdx++
+    currentWipFiber.stateHooks = stateHooks
+
+    function setState (action) {
+        // prevent re-render when the value remains unchanged
+        const eagerState = typeof action === 'function' ? action(stateHook.state) : action
+        if (eagerState === stateHook.state) return
+
+        stateHook.queue.push(typeof action === 'function' ? action : () => action)
+
+        wipRoot = {
+            ...currentWipFiber,
+            alternate: currentWipFiber,
+        }
+        nextWork = wipRoot
+    }
+    return [stateHook.state, setState]
+}
+
 requestIdleCallback(workloop)
 
 export default {
+    useState,
     update,
     render,
     createElement,
